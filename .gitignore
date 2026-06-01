@@ -1,0 +1,17 @@
+# 데이터/이미지 (대회 제공, 용량 큼 — 커밋 제외)
+data/train/images/
+data/test/images/
+
+# 출력/제출물 & 로그
+outputs/*.csv
+outputs/*.log
+*.log
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# 모델/캐시
+*.safetensors
+.cache/

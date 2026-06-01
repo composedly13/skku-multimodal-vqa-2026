@@ -1,0 +1,2 @@
+sample_id,image_path,context,question,answers,label
+TRAIN_0000,./images/train_img_0000.jpg,"Two people in the image are reviewing a project schedule together during a planning meeting. One person in a green cardigan is looking at a notebook, while the person in a navy shirt is pointing at a printed schedule.",Who is more likely to be responsible for delaying the project?,"[""The person in the green cardigan"", ""The person in the navy shirt"", ""Cannot be determined""]",2

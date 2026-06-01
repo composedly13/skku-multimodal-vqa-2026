@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -d *)",
+      "Bash(python -c \"import pandas as pd; d=pd.read_csv\\('data/sample_submission.csv'\\); print\\('rows:',len\\(d\\)\\); print\\(d['label'].value_counts\\(\\).to_dict\\(\\)\\); print\\(d.head\\(3\\).to_string\\(index=False\\)\\)\")",
+      "Bash(cat outputs/baseline_submission.csv)",
+      "Bash(python -c \"import pandas as pd; print\\(len\\(pd.read_csv\\('outputs/baseline_submission.csv'\\)\\)\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -m src.phase1_unknown_heuristic)",
+      "Bash(python -c \"import pandas as pd,collections; d=pd.read_csv\\('outputs/phase2_text_submission.csv'\\); s=pd.read_csv\\('data/sample_submission.csv'\\); print\\('rows',len\\(d\\),'na',int\\(d.label.isna\\(\\).sum\\(\\)\\),'order',\\(d.sample_id.values==s.sample_id.values\\).all\\(\\),'dist',dict\\(collections.Counter\\(d.label\\)\\)\\)\")",
+      "Bash(python -c \"import pandas as pd,collections; d=pd.read_csv\\('outputs/phase3_14b_submission.csv'\\); s=pd.read_csv\\('data/sample_submission.csv'\\); print\\('rows',len\\(d\\),'na',int\\(d.label.isna\\(\\).sum\\(\\)\\),'order',\\(d.sample_id.values==s.sample_id.values\\).all\\(\\)\\)\")"
+    ]
+  }
+}
