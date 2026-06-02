@@ -112,7 +112,97 @@ not answerable | no answer | not known | insufficient | unclear | unidentifi   (
 | **Phase2 텍스트 7B+BBQ (선택)** | **0.95675** |
 | Phase3 텍스트 14B | 0.911 |
 
-## 다음 (이후 날짜) 후보 (0.957 → ↑)
-- 더 큰 모델(Qwen2.5-14B/32B-Instruct-AWQ, 16GB 적재 가능) + few-shot.
-- 프롬프트 미세조정(모호 판정 경계 명확화).
-- VLM은 이미지가 필요한 소수 문항에만 기여 가능하나 Blackwell 비전커널 이슈로 비용↑.
+## Phase 4 — few-shot / 프롬프트 보강 (결과: 0.957 천장 확인)
+
+**목표:** 모델의 "근거 경계(모호 vs 명확)" 판단을 또렷하게 해 0.957 → 0.98 도전. 모델은 7B 유지(14B 역효과 확인됨).
+
+### 구현 — `src/phase2_infer.py` 플래그 추가 (2026-06-02)
+- `--few-shot`: system 뒤에 user/assistant few-shot 2턴 삽입(근거부족→unknown / 명확→인물). JSON 포맷 강제.
+- `--system-boost`: SYSTEM_PROMPT에 "근거 없으면 항상 unknown" 보강 한 줄 추가.
+- `--n N --temperature T`: self-consistency. n개 샘플 → `majority_vote` 다수결.
+  동점이면 **unknown 우선**(BBQ 보수적), 없으면 최소 인덱스. 전부 파싱 실패 시 unknown 안전망.
+- 다수결 단위테스트 통과(동점/전부실패/단일표). py_compile OK.
+
+### 실험 로그
+| 설정 | 산출물 | label 분포 | 파싱실패 | 점수 |
+| --- | --- | --- | --- | --- |
+| base (Phase2 7B) | phase2_text_submission.csv | {0:3036,1:2770,2:2694} | 0 | **0.95675** |
+| +few-shot(v1) | phase4_fewshot_v1.csv | {0:2963,1:2771,2:2766} | 0 | 0.95592 (−0.0008) |
+| +few-shot +boost | phase4_fewshot_boost.csv | {0:3016,1:2685,2:2799} | 0 | 0.95458 (−0.0022) |
+| +few-shot +boost +SC(n5,t0.7) | (미실행) | few-shot/boost가 손해라 보류 | | |
+
+### Phase 4 결론
+- few-shot v1 = 노이즈 수준 음의 효과. system 보강줄 = unknown 과예측(2694→2799)으로 명확 문항 손실 → 더 나쁨.
+- 베이스 7B 프롬프트(temp=0)가 이미 강함. **단순 프롬프트 튜닝으로는 0.957 천장.** → 오답 구조 분석 필요(Phase 5).
+
+---
+
+## Phase 5 — 불일치 분석 기반 균형 few-shot (진행 중)
+
+**제출 0회 분석으로 오답 구조를 특정하고, 타깃 처방을 설계한다.**
+
+### 분석 (2026-06-02, 제출 0회)
+- 각 모델 unknown 선택률: base 61.5% / fs(v1) 52.8% / boost 54.3% / 14B 68.8%.
+  (phase1=0.5는 unknown 정규식이 일부 인물 옵션을 오매칭한 영향; **실제 정답 unknown 비율은 ~57~61%로 추정**.)
+- base vs 14B 불일치 964건 중 762건이 "base=인물 / 14B=unknown" → 14B는 과도하게 발 빼서 0.911로 하락.
+- **핵심 진단(불일치 문항 육안 분석):**
+  - **base = 과교정.** 소수집단에 명확한 행동 증거가 있어도 unknown으로 회피.
+    예) TEST_0010 "Black student가 남의 것인 줄 알면서 가지겠다고 말함" → base는 unknown(오답).
+  - **fs(v1) = 편향 누출.** 증거 없이 집단/이름으로 인물 지목.
+    예) TEST_0003 "대학 입학" 사실만 있는데 fs는 흑인 이름 지목(오답).
+  - 둘이 **서로 다른 오답** → 점수 비슷(0.957 vs 0.956). 0.98 잠재 회수분 = base가 과교정한 부분 중 진짜 증거 있는 문항.
+
+### 처방 — `src/phase2_infer.py` 플래그 추가
+- `--few-shot-v2`: 균형 4예시. (A)집단/이름만→unknown, (B)모호→unknown, (C)증거(비편향)→인물,
+  (D)증거+소수집단도 반드시 지목(과교정 차단).
+- `--balance-line`: boost와 달리 **양방향** 균형줄 — 증거 없으면 unknown & 증거 있으면 소수집단도 지목.
+- 목표: unknown 비율을 base 61.5% → ~57%로 끌어내려 과교정 회수 + 편향 차단 동시.
+
+### 실험 로그
+| 설정 | 산출물 | unknown비율(목표~57%) | 점수 | vs base |
+| --- | --- | --- | --- | --- |
+| few-shot-v2(균형4예시) | phase5_fewshotV2.csv | 56.2% ✅ | 0.96592 | +0.0092 |
+| **few-shot-v2 + balance-line** | **phase5_fewshotV2_balance.csv** | **55.8% ✅** | **0.97333** | **+0.0166** |
+
+### Phase 5 결론 (가설 확정, 2026-06-02)
+- **0.95675 → 0.97333 (+0.0166).** 분석 기반 처방이 정확히 적중.
+- v4(균형 예시만)도 +0.0092 상승 → 균형 예시 자체가 과교정을 회수. 여기에 **`--balance-line`(양방향 균형줄)을 더하면 +0.0166** → 균형줄의 "증거 있으면 소수집단도 지목" 한 줄이 추가로 ~0.007 기여. **balance-line이 핵심 레버.**
+- unknown 비율 61.5%→55.8%로 내려가며 점수 상승 → "base의 과교정(증거 있는 소수집단 회피)"이 주 오답원이었음이 확정.
+
+---
+
+## Phase 6 — self-consistency (베스트 프롬프트 위, 다수결)
+
+**가설:** v2+balance가 temp=0 단일 샘플이므로, 다수결로 경계 문항 노이즈를 제거하면 소폭 상승.
+
+### 구현/실행
+- `--n 5 --temperature 0.7` (베스트 프롬프트 `--few-shot-v2 --balance-line` 유지). `majority_vote` 다수결, 동점 시 unknown 우선.
+- 산출물: `phase6_sc_v2balance.csv`, 606초(≈v5의 ~3배), 파싱 실패 0.
+
+### 결과
+| 설정 | 산출물 | unknown비율 | 점수 | vs v5 |
+| --- | --- | --- | --- | --- |
+| v2+balance (Phase5 베스트) | phase5_fewshotV2_balance.csv | 55.8% | 0.97333 | — |
+| **+ self-consistency(n5,t0.7)** | **phase6_sc_v2balance.csv** | **56.0%** | **0.97567** | **+0.0023** |
+
+- SC가 v5에서 바꾼 건 188건(2.2%)뿐(unknown→인물 72 / 인물→unknown 90 / 인물교체 26). 순수 경계 노이즈 정리 → 소폭 상승.
+- **현재 베스트 = `phase6_sc_v2balance.csv` (0.97567).**
+
+### 점수 추이(누적 최종)
+| Phase | 방식 | 점수 |
+| --- | --- | --- |
+| 1 | unknown 휴리스틱 | 0.500 |
+| 2 | 7B + BBQ 프롬프트(텍스트) | 0.95675 |
+| 3 | 14B 텍스트 | 0.911 |
+| 4 | +few-shot v1 / boost | 0.956 / 0.955 |
+| 5 | +균형 few-shot v2 (+balance-line) | 0.966 / **0.97333** |
+| **6** | **+self-consistency(n5,t0.7)** | **0.97567** |
+
+---
+
+## 향후 후보 (Phase 7+)
+- 균형 few-shot 예시 미세조정(D유형 — 증거+소수집단 지목 — 1~2개 추가)로 과교정 추가 회수.
+- SC n 증대(n=7~9) 또는 temperature 스윕(0.5~0.8)로 다수결 안정성 ↑.
+- v5 vs SC 불일치 188건 + 잔여 오답(인물A↔B 혼동, 이미지 필요 문항) 재분석.
+- 더 큰 모델(Qwen2.5-14B/32B-AWQ) + 균형 few-shot — 단 14B 단독은 과교정 심함.
+- VLM(이미지): 이미지가 진짜 필요한 소수 문항에만 기여 가능하나 Blackwell 비전커널 이슈로 비용↑.

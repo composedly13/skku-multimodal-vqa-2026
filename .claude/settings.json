@@ -8,7 +8,15 @@
       "Bash(python -c ' *)",
       "Bash(python -m src.phase1_unknown_heuristic)",
       "Bash(python -c \"import pandas as pd,collections; d=pd.read_csv\\('outputs/phase2_text_submission.csv'\\); s=pd.read_csv\\('data/sample_submission.csv'\\); print\\('rows',len\\(d\\),'na',int\\(d.label.isna\\(\\).sum\\(\\)\\),'order',\\(d.sample_id.values==s.sample_id.values\\).all\\(\\),'dist',dict\\(collections.Counter\\(d.label\\)\\)\\)\")",
-      "Bash(python -c \"import pandas as pd,collections; d=pd.read_csv\\('outputs/phase3_14b_submission.csv'\\); s=pd.read_csv\\('data/sample_submission.csv'\\); print\\('rows',len\\(d\\),'na',int\\(d.label.isna\\(\\).sum\\(\\)\\),'order',\\(d.sample_id.values==s.sample_id.values\\).all\\(\\)\\)\")"
+      "Bash(python -c \"import pandas as pd,collections; d=pd.read_csv\\('outputs/phase3_14b_submission.csv'\\); s=pd.read_csv\\('data/sample_submission.csv'\\); print\\('rows',len\\(d\\),'na',int\\(d.label.isna\\(\\).sum\\(\\)\\),'order',\\(d.sample_id.values==s.sample_id.values\\).all\\(\\)\\)\")",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(python -m py_compile src/phase2_infer.py)",
+      "Bash(python -c \"import pandas as pd; a=pd.read_csv\\('d:/skku-multimodal-vqa-2026/outputs/day2_1_fewshot.csv'\\); b=pd.read_csv\\('d:/skku-multimodal-vqa-2026/data/sample_submission.csv'\\); print\\('rows', len\\(a\\), 'cols', list\\(a.columns\\), 'id_match', \\(a.sample_id.values==b.sample_id.values\\).all\\(\\), 'labels', sorted\\(a.label.unique\\(\\)\\)\\)\")",
+      "Bash(mv -v day2_1_fewshot.csv          phase4_fewshot_v1.csv)",
+      "Bash(mv -v day2_2_fewshot_boost.csv    phase4_fewshot_boost.csv)",
+      "Bash(mv -v day2_4_fewshotV2.csv        phase5_fewshotV2.csv)",
+      "Bash(mv -v day2_5_fewshotV2_balance.csv phase5_fewshotV2_balance.csv)",
+      "Bash(rm -fv _smoke.csv _smoke_v2.csv)"
     ]
   }
 }
