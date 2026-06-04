@@ -178,7 +178,8 @@ def main():
             try: ip.size["shortest_edge"] = args.min_pixels
             except Exception: pass
 
-    load_kwargs = dict(torch_dtype=torch_dtype, attn_implementation=args.attn)
+    # low_cpu_mem_usage: shard를 순차 로드해 CPU RAM 피크를 낮춤(31GB RAM/스왑 부족 환경 멈춤 방지).
+    load_kwargs = dict(torch_dtype=torch_dtype, attn_implementation=args.attn, low_cpu_mem_usage=True)
     if args.load_4bit or args.load_8bit:
         # bf16 원본을 로컬 16GB에 적재하기 위한 bitsandbytes 양자화. AWQ/gptqmodel 우회.
         #  4bit(nf4 ~6GB): 가장 가벼움. 8bit(int8 ~10GB): 정밀도 bf16에 더 근접(속도는 느림).
