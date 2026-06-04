@@ -137,7 +137,9 @@ def parse_args():
     p.add_argument("--attn", default="sdpa", choices=["sdpa", "eager", "flash_attention_2"],
                    help="Blackwell에서 sdpa가 비전커널로 막히면 eager 폴백")
     p.add_argument("--load-4bit", action="store_true",
-                   help="bf16 원본을 bitsandbytes nf4 4bit로 적재(로컬 16GB용). AWQ/gptqmodel 우회.")
+                   help="bf16 원본을 bitsandbytes nf4 4bit로 적재(로컬 16GB용, ~6GB). AWQ/gptqmodel 우회.")
+    p.add_argument("--load-8bit", action="store_true",
+                   help="bitsandbytes int8 적재(~10GB). 4bit보다 bf16에 근접·느림. --load-4bit보다 우선.")
     p.add_argument("--dtype", default="bf16", choices=["bf16", "fp16", "fp32"])
     p.add_argument("--max-new-tokens", type=int, default=200)
     p.add_argument("--max-pixels", type=int, default=200704)  # 노트북과 동일 (~448x448)
@@ -177,14 +179,18 @@ def main():
             except Exception: pass
 
     load_kwargs = dict(torch_dtype=torch_dtype, attn_implementation=args.attn)
-    if args.load_4bit:
-        # bf16 원본을 nf4 4bit로 로컬 적재(16GB 적재용). AWQ/gptqmodel 우회.
-        # 최종 A6000 제출은 4bit 빼고 bf16 통째 → 같은 가중치, 더 정확.
+    if args.load_4bit or args.load_8bit:
+        # bf16 원본을 로컬 16GB에 적재하기 위한 bitsandbytes 양자화. AWQ/gptqmodel 우회.
+        #  4bit(nf4 ~6GB): 가장 가벼움. 8bit(int8 ~10GB): 정밀도 bf16에 더 근접(속도는 느림).
+        # 최종 A6000 48GB 제출은 양자화 빼고 bf16 통째도 가능(단 선택 CSV와 동일 양자화로 재현 권장).
         from transformers import BitsAndBytesConfig
-        load_kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True, bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch_dtype, bnb_4bit_use_double_quant=True,
-        )
+        if args.load_8bit:
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+        else:
+            load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch_dtype, bnb_4bit_use_double_quant=True,
+            )
         load_kwargs["device_map"] = "auto"
     else:
         load_kwargs["device_map"] = device
