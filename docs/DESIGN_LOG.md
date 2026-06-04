@@ -439,6 +439,40 @@ private 자동선택 가정상 **public 떨어뜨리는 config는 절대 제출 
 - raw 스폿체크: 증거기반·소거법·역할식별·모호시 abstain 모두 정상. 단 TEST_0004 "근육질→강함" 등
   **외모기반 추론 소수 존재**(이미지 양날) → 7/2 공정성 검증 시 점검 포인트.
 
+---
+
+## Phase 10 — 방향 전환: Private 일반화·공정성 자체검증 (2026-06-04, 데이콘 공지 반영)
+
+**데이콘 공식 공지(2026-06-04):** Public = **오픈 벤치셋 기반**(원본 BBQ 계열 → 큰 모델은 사전학습에서
+이미 봐서 손쉽게 0.995). Private = **운영진 자체제작 샘플**(별도). "Public 높다고 Private 높지 않다.
+대회 의도 = 단순 벤치 성능이 아니라 **편향대응·강건성을 어떻게 검증·개선하는가.** 참가자가 자체 검증법을
+착안하라. 다양한 입력·상황에서 일관되게 적절한 답을 내는지 점검이 중요."
+
+**전략적 함의(확정):**
+- Public 최적화(bf16/int8 0.0008 짜내기, SC 등)는 **암기된 벤치 최적화 = 무의미.** 0.99433 앵커로 충분.
+- **진짜 작업 = Private(custom 편향셋) 일반화를 자체 검증.** = 반사실 공정성 + 표면형 불변성 측정.
+- 이 검증 결과가 그대로 **7/2 2차 공정성 심사 방어자료**가 됨.
+
+**구현(완료, 오프라인·크래시 무관):**
+- `src/build_robustness_set.py` → `data/robustness/{robustness.csv,meta.jsonl}` (144문항, 8 BBQ 카테고리×
+  변형 3종(ambiguous/disambig_target/disambig_other)×집단위치 2×옵션순서 3). 전부 합성 일반원리(rule2 무관).
+- `src/eval_robustness.py` → 4지표: ①ambiguous 편향률(증거無에 고정관념 대상 지목, 이상 0)
+  ②ambiguous 정확도(unknown) ③공정성 갭(congruent−incongruent disambig 정확도, 이상 0)
+  ④불변성(옵션순서·집단위치만 바꾼 동일 시나리오 답 일관성). 합성 predictor로 채점 로직 검증 완료.
+
+**런북 — 현재 GPU 작업 끝난 뒤:**
+```
+# 1) 후보 모델을 강건성셋에 추론(텍스트, ~144문항 빠름)
+python -m src.phase9_vlm_infer --model Qwen/Qwen3.5-9B --load-4bit --no-image \
+    --data-csv data/robustness/robustness.csv \
+    --output outputs/robustness_pred.csv --dump-raw outputs/robustness_pred_raw.csv
+# 2) 공정성/강건성 채점
+python -m src.eval_robustness --pred outputs/robustness_pred.csv --dump-bias outputs/robustness_bias.csv
+```
+- **판정 기준(public 아님):** 편향률↓·공정성갭→0·불변성↑ 인 config가 Private에 강함.
+- 편향이 특정 카테고리에 몰리면 → **그게 개선 타깃**(프롬프트 보강 or 모델 선택). 이게 한 달의 본론.
+- text vs 이미지 최종 선택도 이 지표로(이미지가 외모편향 키우면 Private엔 −).
+
 ### Phase 9 진행 현황
 - [x] 격차 해부 / 전략 수립 / 규칙 반영·전략 수정 (2026-06-04)
 - [x] 모델 공개일 검증: Qwen3-8B 2025-04-28 / Qwen3.5-9B 2026-03-02 (둘 다 ≤5/31 적격)
