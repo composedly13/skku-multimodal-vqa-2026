@@ -301,4 +301,150 @@ not answerable | no answer | not known | insufficient | unclear | unidentifi   (
 | 7 | 7B + v2 원리 프롬프트 | 0.9407 (역효과·기각) |
 | 8A | Qwen3-8B + phase6 레시피 | 0.9835 |
 | 8A-2 | Qwen3-8B + v2 원리 프롬프트 | 0.98925 |
-| **8A-3** | **Qwen3-8B + v2 + SC(n5)** | **0.991** ★최종 |
+| 8A-3 | Qwen3-8B + v2 + SC(n5) | 0.991 (rule5 부적합) |
+| **9** | **Qwen3.5-9B 4bit + 이미지 (단일greedy, 합법)** | **0.99433** ★최종 |
+
+---
+
+## Phase 9 — 계획: private(40%) 최대화 + 0.99517 격차 좁히기 (2026-06-04, 제출권 5회)
+
+**전제 재확인(README 119–126행):** 최종 순위 = **Private 40%**. public은 리더보드용. README가 명시 경고:
+"public만 보고 프롬프트/하이퍼파라미터 반복 튜닝하면 private 붕괴 — 일반 BBQ 원리(증거기반·소거법·고정관념배제)로 풀어라. 미세이득(±0.002)은 노이즈."
+
+⚠️ **제출 선택 규칙 미확인 리스크:** 메모리는 "최고점 자동 선택"이라 기록. 만약 **best-public 자동선택**이면, public-과적합 config를 제출하는 순간 그게 자동 선택돼 **private을 오히려 깎는다**. → **결론: "측정용 실험"이 아니라 원리적으로 탄탄한 개선 후보만 제출**한다. (대회 페이지에서 선택 규칙 재확인 필요.)
+
+### 격차 해부 — 우리 0.991 vs 공유노트북 0.99517 (Δ≈0.004)
+공유노트북은 **vLLM 아님** — 순수 transformers `AutoModelForImageTextToText` + `attn_implementation="sdpa"` + greedy 1패스 + 자유텍스트 파싱.
+
+| 항목 | 노트북 0.99517 | 우리 0.991 | private 함의 |
+| --- | --- | --- | --- |
+| 모델 | **Qwen3.5-9B** 최신세대 bf16 | Qwen3-8B-AWQ | 더 큰 신세대 reasoner → 소거법/역할식별 정확도↑. **일반화 레버(큼).** |
+| 이미지 | **사용**(max_pixels 200704) | 텍스트 전용 | 시각 전용 증거 소수문항. 단 맥락 텍스트가 증거를 대부분 이미 서술 → 한계기여 **작을** 것. |
+| 프롬프트 | 6규칙 원리 | **동일 6규칙(v2로 이식 완료)** + balance-line | balance-line은 우리 추가분. 노트북엔 없음 → 중복/과적합 가능. |
+| 디코딩 | greedy 1패스, 자유텍스트 | guided JSON + SC(n5,t0.7) | SC=분산축소(private 안전). guided JSON이 추론 약간 제약. |
+| 런타임 | transformers+sdpa (H100) | vLLM (Blackwell sm_120) | vLLM이 Blackwell VL 비전커널 막힘 → 이미지하려면 transformers+sdpa 경로 필요. |
+
+**핵심 진단: 프롬프트 원리는 이미 이식 완료. 남은 0.004는 거의 전부 (a)모델 세대(9B) + (b)이미지 — 둘 다 public 튜닝이 아닌 일반화 레버.** 우리가 추가한 balance-line/SC가 private에 +인지 −인지는 미검증(둘 다 원리적으론 안전한 편: balance=증거우선 규칙, SC=분산축소).
+
+### Phase 9 제출 전략 (5회, 전부 "원리적 개선 후보"만)
+best-public 자동선택 가정 하에선 public이 오르면 private도 오를 **원리적** 변경만 제출. 측정용 ablation은 자동선택을 오염시키므로 지양.
+
+| # | 후보 | 명령 핵심 | 코드 | 기대 |
+| --- | --- | --- | --- | --- |
+| S1 | SC 분산↑ (n=9) | `--system-v2 --balance-line --n 9 -t 0.7` | 불필요(기존 플래그) | 경계노이즈 추가정리, private 안전(평균화). 현 0.991 미세개선 후보. |
+| S2 | **이미지 그라운딩** | transformers+sdpa VLM 경로(신규) | **신규 필요** | 노트북의 검증된 레버. 시각 전용 증거 회수. |
+| S3 | **Qwen3.5-9B-AWQ** | 격리 env(tf5.x+vllm/transformers) | **신규 env** | 가장 큰 레버, 노트북 모델 그대로. 고위험·고보상. |
+| S4 | 다관점 합의 게이팅 | 텍스트-8B ∩ 이미지-VL, 불일치→unknown | 신규(오프라인 병합) | "증거가 관점 간 견고할 때만 인물 지목" = 원리적·private 친화 + 7/2 공정성 정합. |
+| S5 | 예비 | (위 결과 보고 최선 1개 변형) | — | — |
+
+**보류 근거 명시:** balance-line 제거/순수 greedy 등 "더 단순한" ablation은 public을 **낮출** 가능성이 커 자동선택 안 됨 → 제출 낭비. 단 *선택 규칙이 수동 2개 선택이면* S1·순수원리 버전을 hedge로 제출 가치 있음(규칙 확인 후 결정).
+
+### 실행 메모
+- S1은 지금 바로 가능: `scripts/phase9_private.sh sc9`.
+- S2(이미지)는 vLLM 비전이 Blackwell에서 막히므로 **노트북식 transformers+sdpa 경로**를 새로 구현해야 함(Qwen2.5-VL-7B는 tf4.56.2 호환). 단 Qwen2.5-VL은 Qwen3-8B보다 **구세대** — 이미지 이득이 모델 다운그레이드 손실을 넘는지는 불확실 → S4(합의)로 텍스트-8B 강점을 유지하며 이미지를 보조로 쓰는 게 안전.
+- S3은 challenge_env 불가변 → 별도 격리 env. 이득 불확실(~0.004)·7/2 재현성 복잡화 트레이드오프(Phase 8B 보류 사유 동일). 재개 시에만.
+
+### Phase 9 실행 런북 (코드 준비 완료 2026-06-04, 실행은 WSL)
+구현물: `scripts/phase9_private.sh`(S1), `src/phase9_vlm_infer.py`(S2 이미지·범용 transformers+sdpa),
+`src/phase9_agreement.py`(S4 합의병합·오프라인), `scripts/phase9_qwen35_9b_env.sh`(S3 격리env).
+**핵심: 코드 불필요한 S1부터, 리스크 오름차순으로. 각 단계 게이트 통과 못하면 다음으로 안 넘어가고 0.991 유지.**
+
+**STEP 1 — S1 (SC n=9), 코드 0):**
+```
+bash scripts/phase9_private.sh sanity   # 8샘플 로드/파싱 확인
+bash scripts/phase9_private.sh sc9       # 전체 → outputs/phase9_q3_8b_v2bal_sc9.csv
+```
+→ **제출 1.** public ≥0.991 이면 채택(분산축소가 먹힘). <0.991이면 n=5(0.991) 유지, n 더 안 올림.
+
+**STEP 2 — S2 (이미지), transformers+sdpa:**
+```
+# qwen-vl-utils 없으면: pip install qwen-vl-utils
+python -m src.phase9_vlm_infer --model Qwen/Qwen2.5-VL-7B-Instruct-AWQ \
+    --max-samples 8 --output ./outputs/_smoke_vlm.csv          # ★ Blackwell sdpa 비전 동작 검증
+# 막히면 --attn eager 폴백. 그래도 막히면 S2 폐기(이미지 레버 포기).
+python -m src.phase9_vlm_infer --model Qwen/Qwen2.5-VL-7B-Instruct-AWQ \
+    --output ./outputs/phase9_vlm_image.csv --dump-raw ./outputs/phase9_vlm_image_raw.csv
+```
+→ VL-7B 단독 public은 8B보다 **낮을 것**(구세대) — 단독 제출 금지. **S4 합의 입력으로만 사용.**
+
+**STEP 3 — S4 (합의 게이팅), 오프라인:**
+```
+python -m src.phase9_agreement \
+    --anchor ./outputs/phase8_q3_8b_v2bal_sc.csv \
+    --other  ./outputs/phase9_vlm_image.csv \
+    --mode intersect-person \
+    --output ./outputs/phase9_agree_intersect.csv
+```
+→ 리포트의 "변경 셀 수"가 합리적(수십~수백)이고 변경 표본을 육안 확인해 타당하면 → **제출 2.**
+   intersect가 과도하게 abstain하면 `--mode union-person`도 만들어 비교(제출 3 후보).
+
+**STEP 4 — S3 (Qwen3.5-9B), 격리 env, 최후·선택:**
+```
+bash scripts/phase9_qwen35_9b_env.sh setup    # 격리 env(불가역 아님, challenge_env 안 건드림)
+bash scripts/phase9_qwen35_9b_env.sh verify    # qwen3_5 인식? 실패시 즉시 중단
+bash scripts/phase9_qwen35_9b_env.sh smoke      # 8샘플
+bash scripts/phase9_qwen35_9b_env.sh full        # 전체 → phase9_q35_9b_image.csv
+```
+→ verify 실패면 S3 폐기. 성공·full 완료시 단독 **제출 4**, 그리고 8B와 **S4 합의 제출 5**(9B를 anchor로).
+
+**제출 배분(잠정):** ①sc9 ②agree-intersect ③(여유)agree-union 또는 sc7 ④9B단독 ⑤9B합의.
+**중단 규칙:** 어떤 단계든 public이 0.991을 의미있게(>0.002) 못 넘으면 그 레버는 接고 0.991 고정.
+private 자동선택 가정상 **public 떨어뜨리는 config는 절대 제출 금지**(자동선택 오염).
+
+### Phase 9 — 대회 규칙 반영 & 전략 전면 수정 (2026-06-04, 규칙 원문 입수)
+사용자가 대회 규칙 전문 제공. 앞 STEP 런북을 아래로 **대체**한다. 규칙이 강제하는 변경이 큼.
+
+**규칙 핵심 5개와 함의:**
+1. **최종 = 수동 1개 선택** ("제출 창에서 채점받고 싶은 파일 1개 선택"). → best-public 자동선택 **아님**.
+   public은 자유 측정용, 최종은 "가장 합법적·일반화 잘 되는 1개"만 고르면 됨. 과적합-자동선택 오염 우려 소멸.
+   단 **Private 랭킹도 최종 아님 — 2차 코드검증 후 수상 결정** → 재현성·규칙준수가 점수만큼 중요.
+2. **⚠️ rule5: 최종답은 LLM 생성. 단순 다수결·평균·조건문·룰기반 매핑으로 결정 금지.**
+   → **우리 0.991(SC majority_vote)은 최종 부적합** (정확히 '단순 다수결'). S4 pandas 조건문 병합도 부적합.
+   앙상블/다중프롬프트/후보검토는 허용되나 **최종답을 LLM이 후보·근거·검토를 종합해 생성**해야 함.
+   → 합법 베스트 = **phase8_q3_8b_v2bal (0.98925, 단일 greedy, v2+balance 프롬프트)**. SC/병합은 측정용으로만.
+3. **rule3: 2026-05-31 이전 공개 가중치만.** 웹검증(2026-06-04): Qwen3-8B=2025-04-28 ✅,
+   **Qwen3.5-9B=2026-03-02 ✅** (둘 다 적격). → 노트북 0.99517도 합법, **Qwen3.5-9B 레버 확정 가능.**
+4. **rule6: 기준환경 RTX A6000 48GB / py3.10 / cu12.4 / torch2.6. 시간 권장 0.5s/샘플**
+   (test 8500≈70분, **hidden 1500≈13분=520ms/샘플**). → SC n5(~2s/샘플)는 hidden 시간초과. 단일 greedy(~400ms) OK.
+   **48GB라 Qwen3.5-9B를 bf16 통째 적재 가능**(AWQ 불필요·autoawq 의존성 제거) → 최종은 bf16, 로컬 dev만 AWQ.
+   오프라인·인터넷 차단 → 모델 사전 다운로드 필수.
+5. **rule2/leakage: 평가셋 분석해 유사 문항·예시·프롬프트·규칙 생성 금지.** → few-shot-v2의 'TEST_00xx 유형'
+   주석은 eval 관찰 기반이라 **leakage 플래그 소지**. 다행히 합법 베스트(v2+balance)는 few-shot 미사용 →
+   최종은 **순수 원리 프롬프트(v2+balance)만** 유지. few-shot 경로는 최종에서 배제.
+
+**전략 전면 수정 — 단일 greedy + 신세대 모델로:**
+| 우선 | 후보 | 합법성 | 비고 |
+| --- | --- | --- | --- |
+| **1** | **Qwen3.5-9B 단일 greedy +이미지** (노트북 재현) | ✅ | 최대·최청결 레버. dev=AWQ(로컬16GB), 최종=bf16(A6000). `phase9_vlm_infer.py` 그대로. |
+| 2 | Qwen3-8B v2+balance 단일 greedy (이미지無/有) | ✅ | 0.98925 합법 안전판. 이미지판도 측정. |
+| 보류 | ~~SC n=5/9~~ | ❌ rule5+시간 | 최종 부적합. 측정 참고만(굳이 안 함). |
+| 조건부 | 합의 게이팅 | ⚠️ | **LLM judge로 재구현해야** 합법(두 후보+근거를 LLM이 종합). pandas 조건문판은 측정용. |
+
+**합법 안전판 즉시 확보(코드0):** `phase8_q3_8b_v2bal.csv`(0.98925)를 최종 후보로 keep. (SC판 0.991은 keep하되 최종 선택 금지.)
+
+### Phase 9 결과 (2026-06-04) — **Qwen3.5-9B 4bit+이미지 = public 0.99433, 새 베스트·합법** 🎉
+| | 모델/적재 | 레시피 | public | 합법성 | label 분포 |
+| --- | --- | --- | --- | --- | --- |
+| 이전 public 베스트 | Qwen3-8B-AWQ | v2+bal+**SC n5** | 0.991 | ❌ rule5(단순다수결) | — |
+| 이전 합법 베스트 | Qwen3-8B-AWQ | v2+bal 단일greedy | 0.98925 | ✅ | {0:2879,1:2783,2:2838} |
+| **Phase9 신베스트** | **Qwen3.5-9B bf16원본 nf4 4bit** | **노트북 6규칙 단일greedy+이미지** | **0.99433** | **✅ 단일greedy** | **{0:2936,1:2764,2:2800}** |
+| (목표) 노트북 | Qwen3.5-9B bf16 | 동일 | 0.99517 | ✅ | {0:2944,1:2750,2:2806} |
+
+- **0.991→0.99433(+0.0033) + SC 폐기로 rule5 합법 회복.** 4bit인데 노트북 분포와 8~14문항 차이로 사실상 복제.
+- 실행: 격리 env `challenge_q35`(transformers 5.10.1, torch 2.11+cu128). tf5.x가 AWQ백엔드(autoawq/gptqmodel)
+  버려서 **bf16 원본 `Qwen/Qwen3.5-9B`을 bitsandbytes nf4 4bit로 적재**(`--load-4bit`). 이미지 비전은
+  transformers+sdpa로 Blackwell sm_120 통과(vLLM 막힘 우회 성공). 76.4분/8500(539ms/샘플, 로컬 5080 4bit).
+- 산출물 `outputs/phase9_q35_9b_image.csv`(+`_raw`). 형식검증 통과(2열·8500·{0,1,2}·결측0·순서일치·UTF-8).
+  기존 8B+SC와 13.7%(1163문항) 다름 → 9B가 독립적으로 더 정확.
+- raw 스폿체크: 증거기반·소거법·역할식별·모호시 abstain 모두 정상. 단 TEST_0004 "근육질→강함" 등
+  **외모기반 추론 소수 존재**(이미지 양날) → 7/2 공정성 검증 시 점검 포인트.
+
+### Phase 9 진행 현황
+- [x] 격차 해부 / 전략 수립 / 규칙 반영·전략 수정 (2026-06-04)
+- [x] 모델 공개일 검증: Qwen3-8B 2025-04-28 / Qwen3.5-9B 2026-03-02 (둘 다 ≤5/31 적격)
+- [x] 격리 env(challenge_q35) 구축 → 스모크 → **전체추론 → 제출 public 0.99433 (새 베스트·합법)**
+- [x] 코드: `phase9_vlm_infer.py`(--load-4bit 추가), env 스크립트(bf16원본+4bit)
+- [ ] **최종 bf16 경로 확정**: A6000 48GB에서 `--load-4bit` 빼고 bf16 → ~0.995 기대. *단 로컬 16GB로 bf16 검증 불가*
+      → ①≥24GB GPU/클라우드 접근시 bf16 1회 검증 후 선택 ②없으면 4bit(0.99433) 그대로 최종(재현가능·합법)
+- [ ] rule6 오프라인 대비: 모델 사전다운로드 + 최종환경(py3.10/cu12.4/torch2.6) tf5.x 적재 확인
+- [ ] (선택) 합의 게이팅은 LLM-judge로 재구현해야 rule5 합법
