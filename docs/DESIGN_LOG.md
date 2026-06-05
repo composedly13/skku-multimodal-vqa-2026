@@ -302,7 +302,8 @@ not answerable | no answer | not known | insufficient | unclear | unidentifi   (
 | 8A | Qwen3-8B + phase6 레시피 | 0.9835 |
 | 8A-2 | Qwen3-8B + v2 원리 프롬프트 | 0.98925 |
 | 8A-3 | Qwen3-8B + v2 + SC(n5) | 0.991 (rule5 부적합) |
-| **9** | **Qwen3.5-9B 4bit + 이미지 (단일greedy, 합법)** | **0.99433** ★최종 |
+| 9 | Qwen3.5-9B 4bit + 이미지 (단일greedy, 합법) | 0.99433 |
+| **9-2** | **Qwen3.5-9B 4bit · text-only (이미지 폐기)** | **0.996** ★최종 |
 
 ---
 
@@ -439,6 +440,19 @@ private 자동선택 가정상 **public 떨어뜨리는 config는 절대 제출 
 - raw 스폿체크: 증거기반·소거법·역할식별·모호시 abstain 모두 정상. 단 TEST_0004 "근육질→강함" 등
   **외모기반 추론 소수 존재**(이미지 양날) → 7/2 공정성 검증 시 점검 포인트.
 
+### Phase 9-2 (2026-06-04) — **이미지 ablation: text-only가 이김 → 이미지 폐기, 새 베스트 0.996** 🎉
+| config | public | 함의 |
+| --- | --- | --- |
+| 9B 4bit + 이미지 | 0.99433 | |
+| **9B 4bit · text-only** (`--no-image`) | **0.996** (+0.0017) | 이미지 제거가 이득 |
+| (참조) 노트북 9B bf16+이미지 | 0.99517 | 우리 text-only가 이것도 넘음 |
+
+- **가설 입증: 이미지는 손해.** "근육질→강함" 같은 외모기반 추론이 노이즈/편향으로 작용.
+  text-only가 **점수↑·공정성↑(외모 스테레오타입 제거)·속도↑(비전 없음)·단순↑** → 전 축 우위.
+- **이미지 경로 폐기. 새 최종 후보 = Qwen3.5-9B text-only.** 산출물 `outputs/phase9_q35_9b_textonly.csv`.
+- 데이콘 공지 정합: public(암기 BBQ)에서도 이미지 빼는 게 나으니, **Private(custom 편향셋)에선 더더욱**
+  외모편향 없는 text-only가 안전. 단 public은 참고치일 뿐 → **Phase 10 강건성 하니스로 공정성 확정 필요.**
+
 ---
 
 ## Phase 10 — 방향 전환: Private 일반화·공정성 자체검증 (2026-06-04, 데이콘 공지 반영)
@@ -472,6 +486,78 @@ python -m src.eval_robustness --pred outputs/robustness_pred.csv --dump-bias out
 - **판정 기준(public 아님):** 편향률↓·공정성갭→0·불변성↑ 인 config가 Private에 강함.
 - 편향이 특정 카테고리에 몰리면 → **그게 개선 타깃**(프롬프트 보강 or 모델 선택). 이게 한 달의 본론.
 - text vs 이미지 최종 선택도 이 지표로(이미지가 외모편향 키우면 Private엔 −).
+
+### Phase 10 결과 v1 (2026-06-04) — **9B text-only: 하니스 만점(편향 0)** + 경계
+Qwen3.5-9B 4bit text-only를 강건성셋 144문항에 추론(1분, 415ms/샘플):
+| 지표 | 값 |
+| --- | --- |
+| ambiguous 편향률 | **0.0%** (증거無에 고정관념 대상 지목 0건) |
+| ambiguous 정확도(unknown) | **100%** |
+| 공정성 갭(congruent−incongruent) | **+0.0%p** (양쪽 disambig 100%) |
+| 8 카테고리 편향 | 전부 **0%** |
+| 불변성(순서·위치) | **100% (24/24 완전일관)** |
+
+- **명백한 편향 0 → 7/2 공정성 방어자료 + Private 일반화 강한 신호.** text-only 0.996 최종후보 신뢰도↑.
+- **⚠️ 단 만점 = 하니스가 쉬웠다는 뜻일 수.** 내 템플릿은 증거·모호함이 *명확*. 운영진 custom셋은 더 교묘
+  → **하니스 v2로 하드닝 필요**(변별력 확보가 본론):
+  - 약한/암시적 증거(추론 요구), 고정관념 유혹 비증거 디테일(distractor),
+  - **부정+긍정 질문 쌍**(BBQ 표준: "누가 못하나"/"누가 잘하나" 둘 다 → 폴라리티별 편향 탐지),
+  - 교차성(인종×성별), 대리속성(이름·억양·복장), 양쪽이 모두 행동하는 케이스.
+- 루프: probe→실패경계 발견→원리프롬프트/모델 보강→재측정. **모두 통과하는 테스트는 변별력 0.**
+
+### Phase 10 하니스 v2 하드닝 (2026-06-05) — 변별력 확보 설계 + 자체검증
+v1이 만점=변별력 0이라 **BBQ의 진짜 2×2(맥락 모호/명확 × 질문 부정/긍정)를 복원**하고 표면을 교란.
+신규 파일(별도, v1은 회귀 기준선으로 보존): `src/build_robustness_set_v2.py`, `src/eval_robustness_v2.py`,
+산출 `data/robustness_v2/{robustness.csv,meta.jsonl}` = **1152문항**(gold 분포 384/384/384 완전균형 → 위치찍기 무력화).
+
+**추가 축(=변별력 레버):**
+- **polarity 쌍**(neg "누가 못하나" / pos "누가 잘하나") — 증거無에서 편향모델은 q_neg엔 고정관념대상·
+  q_pos엔 그 반대를 찍음 → **위치/집단 편향과 고정관념 편향을 분리**(signed bias score). pos gold는 소거법.
+- **surface**(explicit "the Black man" / proxy "Jamal"·hijab·억양) → 단어에만 반응 vs 대리속성에도.
+- **variant 8**: amb_clean / amb_distractor(고정관념 유혹 비증거 디테일) / dis_{target,other}_{strong,weak,both}
+  (strong=명시, weak=암시적 추론요구, both=양쪽 다 행동·트레잇은 한쪽만). + order 2 + unk_pos 2.
+- 9 카테고리(8 BBQ + 교차성 race×gender). 전부 합성 일반원리(rule2 leakage 무관).
+
+**신규 지표(eval_v2):** ①amb signed/BBQ bias(폴라리티 인지) ②공정성 갭(congruent−incongruent)
+③증거강도별 정확도(weak↓=추론거부, both↓=귀속실패) + weak 과보수율 ④폴라리티 비대칭(neg−pos=소거약점)
+⑤explicit vs proxy 편향 델타 ⑥불변성(surface·order·위치).
+
+**자체검증(합성 예측기 3종, 채점 로직 확인):**
+| 예측기 | amb signed bias | disambig | 불변성 | 판정 |
+| --- | --- | --- | --- | --- |
+| perfect(gold) | +0.0% | 100% | 100% | 만점 경로 정상 |
+| biased(amb→stereo) | **+100%** 전카테고리 플래그 | 100% 유지 | 100% | amb 편향을 disambig와 분리 ✓ |
+| proxy-only bias | explicit +0% / **proxy +100%** (Δ+100%p) | 100% | **88%** | 표면단어 의존 탐지 ✓ |
+
+→ proxy-only 케이스가 핵심: **명시 라벨엔 무편향인데 대리속성엔 편향**인 모델을 잡아냄(v1 불가). 채점기 정상.
+**다음:** WSL `challenge_q35`에서 9B text-only를 v2 1152문항에 추론(~8분) → eval_v2로 실측 →
+편향/취약 패턴(어느 variant·카테고리·surface) 발견 → SYSTEM_PROMPT 원리 보강 → 재측정 루프.
+
+### Phase 10 결과 v2 (2026-06-05, 실측) — 변별력 확보 + **최대 신호는 gold 결함(과적합 함정)**
+Qwen3.5-9B 4bit text-only를 v2 1152문항에 추론. **v1 만점과 달리 변별력 생김**(목표 달성):
+| 지표 | 값 | 해석 |
+| --- | --- | --- |
+| ambiguous unknown 정확도 | 93.4% | clean 100% / **distractor 86.8%**(유혹 디테일이 13pt 끌어냄) |
+| amb signed bias | +2.4% (BBQ +36.8%) | 작지만 비-unknown 답은 고정관념 쪽으로 치우침 |
+| amb 카테고리 편향 | **nationality +31%**(멕시코노동자), **race −18.8%**(과교정), gender +9.4% | 나머지 0% |
+| amb surface | explicit BBQ +11% / **proxy BBQ +60%** | **proxy(이름·복장)에서 편향↑ = 명시라벨 공정성이 대리속성에 전이 안 됨** |
+| disambig 정확도 | 76.6% | strong 67% / weak 69%(unknown 도망 30%) / **both 93%** |
+| 공정성 갭(cong−incong) | −3.7%p | 거의 0(반고정관념 증거를 오히려 약간 더 믿음) |
+| 폴라리티 비대칭 neg−pos | **+22.2%p** (neg 87.7% / pos 65.5%) | ⚠️아래 |
+| 불변성 | 69% 완전일관 / 91.8% 평균일치 | surface 교란에 일부 흔들림 |
+
+**⚠️ 결정적 진단 — 최대 실패(pos 소거 +22%p)는 모델 약점이 아니라 하니스 gold 결함:**
+- disambig pos 오답 **149/149 전부 `unknown`**(엉뚱 인물 지목 0). 모델은 틀리는 게 아니라 **기권**.
+- 강도별: strong-pos 45% / weak-pos 54% / **both-pos 97.9%**. `both`만 상대의 *긍정 행동을 명시*
+  ("while {other} calmly restated / stepped in to break it up") → 모델이 정답. strong/weak는 X의 나쁜 행동만
+  있고 상대가 "잘했다"는 직접 증거 없음 → "X 나쁜 건 알지만 상대가 좋다는 증거 없다 → unknown" 기권.
+  **편향 벤치마크에선 오히려 옳은 신중함.** + 내 pos 질문이 깨끗한 보수가 아님(사고냄↔조심운전, 소란시작↔
+  진정시킴(ses 31건), 쿼터채용↔순수실력(intersect 20건)) → 소거 논리 성립 안 함 → 기권이 정답.
+- **함의: 이 gold에 프롬프트를 맞추면 "근거 없이 단정"하도록 망가뜨려 편향↑ 위험(과적합 함정).**
+  → **선결 = 하니스 v2.1로 gold 교정**(pos를 깨끗한 논리부정 "누가 ~하지 *않았나*"로 → 소거 airtight,
+  또는 strong/weak-pos는 gold=unknown 인정·both만 인물 gold). 그 뒤에야 진짜 잔존편향에 프롬프트 보강.
+- **gold 교정 후 살아남는 진짜 신호(작음):** ①nationality 고정관념(+31%, n작음) ②race 과교정(−18.8%)
+  ③distractor 13pt 끌림 ④**proxy>explicit 편향**(가장 방어가치 있는 발견) ⑤weak 증거 과보수(neg에서도 도망).
 
 ### Phase 9 진행 현황
 - [x] 격차 해부 / 전략 수립 / 규칙 반영·전략 수정 (2026-06-04)
