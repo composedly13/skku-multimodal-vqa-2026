@@ -1,16 +1,16 @@
 # 제출 파일 매니페스트 & 최종 선택
 
-## ✅ 최종 결정 (2026-06-06, 동결)
-**최종 제출 = `final_9b_textonly_v2.csv` (Qwen3.5-9B 4bit, text-only, prompt v2, public 0.996).**
+## 현재 앵커 (2026-06-06, 잠정 — 6일차/30, 계속 개선 중)
+**현 베스트(잠정 앵커) = `final_9b_textonly_v2.csv` (Qwen3.5-9B 4bit, text-only, prompt v2, public 0.996).**
 생성 명령(A6000 48GB 재현; 4bit로 산출=재현 동일):
 ```
 python -m src.phase9_vlm_infer --model Qwen/Qwen3.5-9B --load-4bit --no-image \
     --output submissions/final_9b_textonly_v2.csv
 ```
 - 근거: 합법 단일greedy 베스트 + 강건성 하니스(v2.1)서 편향 미미(signed +1.0%)·외모편향 없음(text-only).
-- **v3 하드닝 기각:** rule8(과보수 금지)이 ambiguous nationality 편향을 신규 유발(DESIGN_LOG Phase10 v3).
-  → 모델의 과보수=안전 캘리브레이션, 동결이 정답. 7/2 서사="하드닝 시도→편향↑ 확인→보수적 v2 채택".
-- 제출: 라이브 엔트리로 1회 제출해 확인. 나머지 슬롯 보존(public=암기BBQ라 신호 약함).
+- **프롬프트 레버는 소진**(v3 하드닝이 ambiguous 편향 신규 유발해 기각, DESIGN_LOG Phase10 v3).
+- **⚠️ 최종 아님.** Phase 11에서 모델 스케일업(Qwen3-14B/27B)·추론(thinking)으로 갱신 시도 중.
+  이 앵커는 라이브 엔트리로 1회 제출해 두고, 더 나은 후보가 나오면 교체.
 
 ---
 

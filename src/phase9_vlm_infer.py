@@ -165,6 +165,10 @@ def parse_args():
     p.add_argument("--system-prompt", default="v2", choices=["v2", "v3"],
                    help="원리 프롬프트 버전. v2=기존(노트북 6규칙). v3=하드닝(rule7 proxy·distractor 비증거, "
                         "rule8 암시적 단일행동도 증거·과보수 금지). 기본 v2(회귀 없음).")
+    p.add_argument("--enable-thinking", action="store_true",
+                   help="Qwen3 네이티브 thinking(CoT) 켜기. 단일생성=rule5 합법. 잔존 소거·암시증거 약점을 "
+                        "프롬프트 강요 없이 추론으로 잡음. 켜면 max-new-tokens 자동 상향(미지정 시 1024). "
+                        "⚠️느려짐(rule6 520ms/샘플 초과 가능) → dev 검증용, 최종 채택 전 시간 점검.")
     return p.parse_args()
 
 
@@ -175,8 +179,12 @@ def main():
     torch_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[args.dtype]
     include_image = not args.no_image
     system_prompt = SYSTEM_PROMPTS[args.system_prompt]
+    # thinking 켜면 CoT가 길어 200토큰이면 Answer 전에 잘림 → 미지정 시 1024로 상향.
+    if args.enable_thinking and args.max_new_tokens <= 200:
+        args.max_new_tokens = 1024
     print(f"[p9vlm] device={device} dtype={args.dtype} attn={args.attn} image={include_image} "
-          f"model={args.model} prompt={args.system_prompt}")
+          f"model={args.model} prompt={args.system_prompt} thinking={args.enable_thinking} "
+          f"max_new_tokens={args.max_new_tokens}")
 
     df = pd.read_csv(args.data_csv)
     if args.max_samples:
@@ -234,7 +242,7 @@ def main():
             msgs = build_messages(image, r["context"], r["question"], opts, include_image, system_prompt)
             all_messages.append(msgs)
             texts.append(processor.apply_chat_template(
-                msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False))
+                msgs, tokenize=False, add_generation_prompt=True, enable_thinking=args.enable_thinking))
         if include_image:
             img_in, vid_in = process_vision_info(all_messages)
             inp = processor(text=texts, images=img_in, videos=vid_in, padding=True, return_tensors="pt")
