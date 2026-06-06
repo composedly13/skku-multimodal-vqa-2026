@@ -41,6 +41,7 @@ import torch  # noqa: E402
 from PIL import Image  # noqa: E402
 from tqdm.auto import tqdm  # noqa: E402
 from transformers import AutoModelForImageTextToText, AutoProcessor  # noqa: E402
+from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402  (텍스트 전용 LLM 경로)
 
 from src.phase1_unknown_heuristic import find_unknown_index  # noqa: E402
 
@@ -169,6 +170,9 @@ def parse_args():
                    help="Qwen3 네이티브 thinking(CoT) 켜기. 단일생성=rule5 합법. 잔존 소거·암시증거 약점을 "
                         "프롬프트 강요 없이 추론으로 잡음. 켜면 max-new-tokens 자동 상향(미지정 시 1024). "
                         "⚠️느려짐(rule6 520ms/샘플 초과 가능) → dev 검증용, 최종 채택 전 시간 점검.")
+    p.add_argument("--causal-lm", action="store_true",
+                   help="텍스트 전용 LLM 경로(AutoModelForCausalLM+AutoTokenizer). Qwen3-14B/32B 등 "
+                        "비-멀티모달 모델용(Qwen3.5는 멀티모달이라 불필요). 자동으로 이미지 비활성.")
     return p.parse_args()
 
 
@@ -177,7 +181,7 @@ def main():
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[args.dtype]
-    include_image = not args.no_image
+    include_image = not args.no_image and not args.causal_lm  # 텍스트 LLM은 비전 없음
     system_prompt = SYSTEM_PROMPTS[args.system_prompt]
     # thinking 켜면 CoT가 길어 200토큰이면 Answer 전에 잘림 → 미지정 시 1024로 상향.
     if args.enable_thinking and args.max_new_tokens <= 200:
@@ -192,20 +196,28 @@ def main():
     df = df.reset_index(drop=True)
     image_dir = os.path.join(args.images_dir, "images")
 
-    processor = AutoProcessor.from_pretrained(args.model)
-    tok = getattr(processor, "tokenizer", None)
-    if tok is not None:
+    if args.causal_lm:
+        # 텍스트 전용 LLM: 프로세서 없이 토크나이저만. chat=토크나이저로 통일.
+        processor = None
+        tok = AutoTokenizer.from_pretrained(args.model)
         tok.padding_side = "left"
-    ip = getattr(processor, "image_processor", None)
-    if ip is not None:
-        if args.max_pixels:
-            ip.max_pixels = args.max_pixels
-            try: ip.size["longest_edge"] = args.max_pixels
-            except Exception: pass
-        if args.min_pixels:
-            ip.min_pixels = args.min_pixels
-            try: ip.size["shortest_edge"] = args.min_pixels
-            except Exception: pass
+        chat = tok
+    else:
+        processor = AutoProcessor.from_pretrained(args.model)
+        tok = getattr(processor, "tokenizer", None)
+        if tok is not None:
+            tok.padding_side = "left"
+        ip = getattr(processor, "image_processor", None)
+        if ip is not None:
+            if args.max_pixels:
+                ip.max_pixels = args.max_pixels
+                try: ip.size["longest_edge"] = args.max_pixels
+                except Exception: pass
+            if args.min_pixels:
+                ip.min_pixels = args.min_pixels
+                try: ip.size["shortest_edge"] = args.min_pixels
+                except Exception: pass
+        chat = processor
 
     # low_cpu_mem_usage: shard를 순차 로드해 CPU RAM 피크를 낮춤(31GB RAM/스왑 부족 환경 멈춤 방지).
     load_kwargs = dict(torch_dtype=torch_dtype, attn_implementation=args.attn, low_cpu_mem_usage=True)
@@ -224,7 +236,8 @@ def main():
         load_kwargs["device_map"] = "auto"
     else:
         load_kwargs["device_map"] = device
-    model = AutoModelForImageTextToText.from_pretrained(args.model, **load_kwargs).eval()
+    ModelCls = AutoModelForCausalLM if args.causal_lm else AutoModelForImageTextToText
+    model = ModelCls.from_pretrained(args.model, **load_kwargs).eval()
     pad_id = (tok.pad_token_id if tok and tok.pad_token_id is not None
               else (tok.eos_token_id if tok else None))
 
@@ -239,13 +252,20 @@ def main():
             if include_image:
                 p = os.path.join(image_dir, os.path.basename(r["image_path"]))
                 image = Image.open(p).convert("RGB")
-            msgs = build_messages(image, r["context"], r["question"], opts, include_image, system_prompt)
+            if args.causal_lm:
+                # 텍스트 LLM 채팅 템플릿은 content를 문자열로(멀티모달 parts 형식 아님).
+                msgs = [{"role": "system", "content": system_prompt},
+                        {"role": "user", "content": build_user_text(r["context"], r["question"], opts)}]
+            else:
+                msgs = build_messages(image, r["context"], r["question"], opts, include_image, system_prompt)
             all_messages.append(msgs)
-            texts.append(processor.apply_chat_template(
+            texts.append(chat.apply_chat_template(
                 msgs, tokenize=False, add_generation_prompt=True, enable_thinking=args.enable_thinking))
         if include_image:
             img_in, vid_in = process_vision_info(all_messages)
             inp = processor(text=texts, images=img_in, videos=vid_in, padding=True, return_tensors="pt")
+        elif args.causal_lm:
+            inp = tok(texts, padding=True, return_tensors="pt")
         else:
             inp = processor(text=texts, padding=True, return_tensors="pt")
         return inp.to(device)
@@ -264,8 +284,8 @@ def main():
             inputs = prepare_batch(batch)
             out = model.generate(**inputs, **gen_kwargs)
             trimmed = out[:, inputs["input_ids"].shape[1]:]
-            dec = processor.batch_decode(trimmed, skip_special_tokens=True,
-                                         clean_up_tokenization_spaces=False)
+            dec = chat.batch_decode(trimmed, skip_special_tokens=True,
+                                    clean_up_tokenization_spaces=False)
             for r, o in zip(batch, dec):
                 opts = json.loads(r["answers"])
                 preds.append(parse_answer(o, opts))
