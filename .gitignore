@@ -21,3 +21,6 @@ notebooks/Public_Score*.ipynb
 
 # Claude Code 설정 (로컬 전용 — 커밋 제외)
 .claude/
+
+# MM 하니스 이미지(스크립트로 재생성 가능, 바이너리)
+data/robustness_mm/images/
