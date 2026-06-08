@@ -4,20 +4,25 @@
 
 > 예측 CSV는 전부 `outputs/`에 보관(러너 기본 출력 위치, `.gitignore` 대상). 이 매니페스트만 추적.
 
-## 현재 앵커 (잠정 — 6일차/30, 계속 개선 중)
-**현 베스트(잠정 앵커) = `outputs/phase9_q35_9b_textonly.csv` (Qwen3.5-9B 4bit, text-only, prompt v2, public 0.996).**
-생성 명령(A6000 48GB 재현; 4bit로 산출=재현 동일):
-```
-python -m src.phase9_vlm_infer --model Qwen/Qwen3.5-9B --load-4bit --no-image \
-    --output outputs/phase9_q35_9b_textonly.csv
-```
-- 근거: 합법 단일greedy 베스트 + 강건성 하니스(v2.1)서 편향 미미(signed +1.0%)·외모편향 없음(text-only).
-- **⚠️ 최종 아님.** Phase 11 진행 중.
+## ⚠️ 멀티모달 필수 (데이콘 Q&A 2026-06-05): text-only는 유효 모델 아님 → 이미지 사용 필수.
 
-## Phase 11 후보
-| 파일 | config | public | robustness | 판정 |
-| --- | --- | --- | --- | --- |
-| `outputs/phase11_14b_textonly_v2.csv` | Qwen3-14B 4bit, text-only, v2 | **0.97475** | disambig 95.7%·**amb편향 +6.2%(nationality+40%)** | ❌ 9B 0.996 < — ambiguous 편향이 추론이득 압도. 추론↑이나 편향↑로 public·private 둘 다 불리. **다음: 14B+v4로 편향만 잡기** |
+## 현재 앵커 (잠정 — 계속 개선 중)
+**멀티모달 앵커 = `outputs/phase9_q35_9b_image.csv` (Qwen3.5-9B 4bit, **이미지 ON**, prompt v2, public 0.99433).**
+생성 명령(A6000 48GB 재현):
+```
+python -m src.phase9_vlm_infer --model Qwen/Qwen3.5-9B --load-4bit \
+    --output outputs/phase9_q35_9b_image.csv
+```
+- 근거: **멀티모달 유효**(이미지 21% 활용) + 추론 최강(0.99433, VL-8B 0.974·14B 0.975 압도).
+- ⚠️ `phase9_q35_9b_textonly.csv`(0.996)는 점수 높아도 **text-only=실격 위험**이라 제출 불가.
+- **개선 목표:** 0.99433<0.996 격차 = 이미지 외모편향(TEST_0004). v5 프롬프트로 회복 시도.
+
+## Phase 11~12 후보 (기각/검증)
+| 파일 | config | public | 판정 |
+| --- | --- | --- | --- |
+| `phase11_14b_textonly_v2.csv` | Qwen3-14B text | 0.97475 | ❌ text-only=실격 + ambiguous 편향↑ |
+| `phase12_vl8b_image_v2.csv` | Qwen3-VL-8B image | 0.97383 | ❌ 전용VLM이나 8B라 추론 약함(9B-image<) |
+| (예정) `phase12_9b_image_v5.csv` | Qwen3.5-9B image + v5(외모편향 정조준) | ? | 9B-image 외모편향 잡아 0.996 회복 노림 |
 
 ---
 
