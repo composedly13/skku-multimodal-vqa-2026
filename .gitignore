@@ -21,4 +21,3 @@ notebooks/Public_Score*.ipynb
 
 # Claude Code 설정 (로컬 전용 — 커밋 제외)
 .claude/
-submissions/*.csv

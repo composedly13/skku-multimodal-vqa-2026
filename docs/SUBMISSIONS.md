@@ -2,21 +2,22 @@
 
 ## 파일명 규칙: `phaseNN_<모델>_<모달>_<프롬프트>.csv` (전부 페이즈 접두)
 
+> 예측 CSV는 전부 `outputs/`에 보관(러너 기본 출력 위치, `.gitignore` 대상). 이 매니페스트만 추적.
+
 ## 현재 앵커 (잠정 — 6일차/30, 계속 개선 중)
-**현 베스트(잠정 앵커) = `phase9_9b_textonly_v2.csv` (Qwen3.5-9B 4bit, text-only, prompt v2, public 0.996).**
+**현 베스트(잠정 앵커) = `outputs/phase9_q35_9b_textonly.csv` (Qwen3.5-9B 4bit, text-only, prompt v2, public 0.996).**
 생성 명령(A6000 48GB 재현; 4bit로 산출=재현 동일):
 ```
 python -m src.phase9_vlm_infer --model Qwen/Qwen3.5-9B --load-4bit --no-image \
-    --output submissions/phase9_9b_textonly_v2.csv
+    --output outputs/phase9_q35_9b_textonly.csv
 ```
 - 근거: 합법 단일greedy 베스트 + 강건성 하니스(v2.1)서 편향 미미(signed +1.0%)·외모편향 없음(text-only).
-- **프롬프트 레버는 소진**(v3 하드닝이 ambiguous 편향 신규 유발해 기각, DESIGN_LOG Phase10 v3).
-- **⚠️ 최종 아님.** Phase 11 진행: 14B 후보 public 측정 중.
+- **⚠️ 최종 아님.** Phase 11 진행 중.
 
-## Phase 11 후보 (신규)
-| 파일 | config | public | robustness | 비고 |
+## Phase 11 후보
+| 파일 | config | public | robustness | 판정 |
 | --- | --- | --- | --- | --- |
-| `phase11_14b_textonly_v2.csv` | Qwen3-14B 4bit, text-only, v2(causal-lm) | (측정중) | disambig 95.7%·**amb편향 +6.2%(nationality+40%)** | 추론↑·편향↑ 트레이드오프. 526ms/샘플(rule6 OK). 포맷검증 통과 |
+| `outputs/phase11_14b_textonly_v2.csv` | Qwen3-14B 4bit, text-only, v2 | **0.97475** | disambig 95.7%·**amb편향 +6.2%(nationality+40%)** | ❌ 9B 0.996 < — ambiguous 편향이 추론이득 압도. 추론↑이나 편향↑로 public·private 둘 다 불리. **다음: 14B+v4로 편향만 잡기** |
 
 ---
 
@@ -31,12 +32,13 @@ python -m src.phase9_vlm_infer --model Qwen/Qwen3.5-9B --load-4bit --no-image \
 - **R7**: UTF-8, 8500행, 라벨∈{0,1,2}, sample 순서 = test.csv. **최종순위 = 제출창서 직접 고른 1개**(자동 아님).
   Public 60%=암기 BBQ(참고용) / Private 40%=운영진 custom 편향셋(본론). **Public↑≠Private↑.**
 
-## 즉시 제출 가능 (검증 완료, 컴퓨팅 불필요)
+## 검증된 합법 후보 (outputs/, 컴퓨팅 불필요)
 | 파일 | config | public | 합법 | 역할 |
 | --- | --- | --- | --- | --- |
-| `phase9_9b_textonly_v2.csv` | Qwen3.5-9B 4bit, text-only, prompt v2 | **0.996** | ✅ | **현 앵커** |
-| `phase9_9b_image_v2.csv` | 〃 + 이미지 | 0.99433 | ✅ | 이미지 대조(외모편향 입증돼 비선호) |
-| `phase8_8b_v2bal.csv` | Qwen3-8B, text-only, v2 | 0.98925 | ✅ | 약모델 안전판 |
+| `outputs/phase9_q35_9b_textonly.csv` | Qwen3.5-9B 4bit, text-only, v2 | **0.996** | ✅ | **현 앵커** |
+| `outputs/phase9_q35_9b_image.csv` | 〃 + 이미지 | 0.99433 | ✅ | 이미지 대조(외모편향 입증돼 비선호) |
+| `outputs/phase8_q3_8b_v2bal.csv` | Qwen3-8B, text-only, v2 | 0.98925 | ✅ | 약모델 안전판 |
+| `outputs/phase11_14b_textonly_v2.csv` | Qwen3-14B 4bit, text-only, v2 | 0.97475 | ✅ | 추론↑·편향↑(앵커 미달) |
 
 (❌ SC(자기일치 다수결) 산출물 0.991 = **rule5 위반, 최종 절대 불가**. 재제출 금지.)
 
